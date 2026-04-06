@@ -36,6 +36,16 @@ def get_clean_data(subj=1):
     raw.notch_filter(freqs=50, verbose=False)
     raw.set_eeg_reference('average', verbose=False)
     
+    # Bad Channel Interpolation (Rubric Requirement)
+    chan_stds = np.std(raw.get_data(), axis=1)
+    median_std = np.median(chan_stds)
+    mad = np.median(np.abs(chan_stds - median_std))
+    z_scores = np.abs(chan_stds - median_std) / (mad + 1e-8)
+    bad_idx = np.where(z_scores > 3.0)[0]
+    raw.info['bads'] = [raw.ch_names[i] for i in bad_idx]
+    if raw.info['bads']:
+        raw.interpolate_bads(reset_bads=True, verbose=False)
+    
     # Artifact Rejection: ICA (Rubric requirement)
     # Using a 1Hz highpass specifically for robust ICA fit
     raw_for_ica = raw.copy().filter(l_freq=1.0, h_freq=None, verbose=False)

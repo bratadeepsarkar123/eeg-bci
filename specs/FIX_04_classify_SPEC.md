@@ -1,3 +1,30 @@
+# SPEC: Fix `04_classify.py` — Remove Crash Bug
+
+## Context
+`04_classify.py` currently has code at lines 39–55 that references undefined variables (`models`, `x`, `confusion_matrix`). These lines were leftover from an incomplete edit. The file will crash if run. This must be fixed.
+
+## File to Edit
+`src/04_classify.py`
+
+## Current Broken Content (lines 36–56)
+```python
+# 4. Evaluation
+cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+for name, model in models.items():
+    print(f"\n--- Evaluating {name} ---")
+    
+    # Get predictions using cross-validation
+    y_pred = cross_val_predict(model, x, y, cv=cv)
+    ...
+```
+
+## Required Fix
+Delete everything from line 36 onwards. The correct evaluation using `cross_val_predict` is already done in lines 31–34. Replace the entire file with the clean version below.
+
+## Complete Replacement File Content
+
+```python
 import numpy as np
 import mne
 from moabb.datasets import BNCI2014_009
@@ -38,3 +65,8 @@ for name, clf in [("LDA", lda), ("SVM", svm)]:
     print(classification_report(y, y_pred, target_names=['NonTarget', 'Target']))
     print("Confusion Matrix:")
     print(confusion_matrix(y, y_pred))
+```
+
+## Validation
+Run: `python src/04_classify.py`  
+Expected: No errors. Two classification reports printed (LDA and SVM).
