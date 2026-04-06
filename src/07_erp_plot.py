@@ -2,47 +2,49 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import mne
-from moabb.datasets import BNCI2014_009
 import warnings
+from data_loader import get_clean_data
 
 warnings.filterwarnings('ignore')
 mne.set_log_level('WARNING')
-
 os.makedirs('results', exist_ok=True)
 
-# Load and preprocess
-ds = BNCI2014_009()
-raw = ds.get_data(subjects=[1])[1]['0']['0']
-raw.pick_types(eeg=True)
-raw.filter(0.1, 30.0, verbose=False)
-raw.notch_filter(50.0, verbose=False)
-raw.set_eeg_reference('average', verbose=False)
+def plot_dataset_erp(ax, dataset_name, subj=1):
+    """Plots Target vs Non-Target ERP for a specific dataset/subject."""
+    epochs_obj, X, y = get_clean_data(dataset_name=dataset_name, subj=subj, apply_decimation=False)
+    
+    # Calculate Grand Average (mean trials, then mean channels)
+    # X shape is (n_epochs, n_channels, n_times)
+    target_erp = X[y == 1].mean(axis=0).mean(axis=0) * 1e6
+    nontarget_erp = X[y == 0].mean(axis=0).mean(axis=0) * 1e6
+    times = epochs_obj.times * 1000
+    
+    ax.plot(times, target_erp, color='#1f77b4', linewidth=2.5, label='Target (P300)')
+    ax.plot(times, nontarget_erp, color='#ff7f0e', linewidth=2.0, linestyle='--', label='Non-Target')
+    
+    # Styling
+    ax.axvline(0, color='black', alpha=0.3, label='Onset')
+    ax.axvspan(250, 500, alpha=0.15, color='#1f77b4', label='P300 Zone')
+    ax.set_title(f'ERP: {dataset_name} (Subj {subj})', fontsize=12, fontweight='bold')
+    ax.set_xlabel('Time (ms)')
+    ax.set_ylabel('Amplitude (µV)')
+    ax.grid(True, alpha=0.2)
+    ax.legend(loc='upper right', fontsize='small')
 
-# Epoch — full resolution (no decimation, for smooth ERP curve)
-events, _ = mne.events_from_annotations(raw, verbose=False)
-epochs = mne.Epochs(raw, events, tmin=-0.2, tmax=0.8,
-                    baseline=(-0.2, 0), preload=True, verbose=False)
-
-labels = epochs.events[:, -1] - 1
-times = epochs.times * 1000  # milliseconds
-
-# Separate by class and compute grand average (mean over trials then channels)
-target_erp    = epochs.get_data()[labels == 1].mean(axis=0).mean(axis=0) * 1e6
-nontarget_erp = epochs.get_data()[labels == 0].mean(axis=0).mean(axis=0) * 1e6
-
-# Plot
-fig, ax = plt.subplots(figsize=(10, 5))
-ax.plot(times, target_erp, color='steelblue', linewidth=2, label='Target (P300 present)')
-ax.plot(times, nontarget_erp, color='tomato', linewidth=2, linestyle='--', label='Non-Target')
-ax.axvline(x=0, color='grey', linestyle='--', linewidth=1, label='Stimulus onset')
-ax.axhline(y=0, color='grey', linestyle='-', linewidth=0.5)
-ax.axvspan(250, 500, alpha=0.12, color='steelblue', label='P300 window (250–500ms)')
-ax.set_title('Grand Average ERP — Target vs Non-Target (P300 Speller)', fontsize=13)
-ax.set_xlabel('Time (ms)')
-ax.set_ylabel('Amplitude (µV)')
-ax.legend()
-ax.grid(True, alpha=0.3)
-plt.tight_layout()
-plt.savefig('results/erp_waveform.png', dpi=200)
-plt.close()
-print("ERP plot saved to results/erp_waveform.png")
+if __name__ == "__main__":
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+    
+    print("--- Generating Comparative ERP Plots ---")
+    
+    print("  - Plotting BNCI2014_009...")
+    plot_dataset_erp(ax1, 'BNCI2014_009', subj=1)
+    
+    print("  - Plotting EPFLP300...")
+    plot_dataset_erp(ax2, 'EPFLP300', subj=1)
+    
+    plt.suptitle('Multi-Dataset ERP Comparison (Target vs Non-Target)', fontsize=16, y=1.02)
+    plt.tight_layout()
+    plt.savefig('results/comparative_erp.png', bbox_inches='tight', dpi=200)
+    plt.close()
+    
+    print("Success: Comparative ERP plot saved to results/comparative_erp.png")
