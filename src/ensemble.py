@@ -1,6 +1,6 @@
 import numpy as np
 import mne
-from preprocess import get_clean_data
+from preprocess import get_clean_data, apply_spatial_ica
 from sklearn.svm import SVC
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
@@ -21,16 +21,20 @@ def get_itr(n, acc, dur=2.0):
 
 # Load and preprocess using the centralized A+ Grade pipeline
 print("--- Loading data via centralized data_loader ---")
-epochs, X_raw, y_raw = get_clean_data(dataset_name='BNCI2014_009', subj=1)
-
-# Flatten epochs for classical classification
-X = X_raw.reshape(len(X_raw), -1)
-y = y_raw
+epochs, _, y_raw = get_clean_data(dataset_name='BNCI2014_009', subj=1)
 
 # SCIENTIFIC FIX: Disable shuffle to preserve temporal/block structure
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, shuffle=False
-)
+idx = np.arange(len(epochs))
+idx_train, idx_test = train_test_split(idx, test_size=0.2, shuffle=False)
+
+# Bug #2 Fix: ICA inside CV loop
+epochs_train = epochs[idx_train].copy()
+epochs_test = epochs[idx_test].copy()
+epochs_train, epochs_test = apply_spatial_ica(epochs_train, epochs_test)
+
+X_train = epochs_train.get_data().reshape(len(idx_train), -1)
+X_test = epochs_test.get_data().reshape(len(idx_test), -1)
+y_train, y_test = y_raw[idx_train], y_raw[idx_test]
 
 # Train SVM with scaling pipeline
 print("--- Training SVM Baseline (with scaling) ---")
@@ -67,7 +71,8 @@ for i in range(n_blocks):
 ensemble_acc = n_correct / n_blocks if n_blocks > 0 else 0.0
 
 # Character-level ITR (N=36)
-ensemble_itr = get_itr(36, ensemble_acc, dur=N_CYCLE * 0.2) # Assuming 200ms per flash
+# Fix Bug #7/9: dur represents total physiological time for a character (e.g., 10 repetitions * 1.2s = 12s)
+ensemble_itr = get_itr(36, ensemble_acc, dur=12.0)
 
 print("\n--- FINAL ENSEMBLE CONSISTENCY REPORT ---")
 print(f"Dataset:                  BNCI2014_009 (Subject 1)")

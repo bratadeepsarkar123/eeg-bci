@@ -55,28 +55,7 @@ def get_clean_data(dataset_name='BNCI2014_009', subj=1, apply_decimation=True):
     if raw.info['bads']:
         raw.interpolate_bads(reset_bads=True, verbose=False)
     
-    # Preprocessing Step 5: Adaptive ICA Artifact Rejection
-    # Instead of blindly excluding 0/1, we audit components spatially.
-    raw_for_ica = raw.copy().filter(l_freq=1.0, h_freq=None, verbose=False)
-    ica = ICA(n_components=min(len(raw.ch_names), 15), random_state=SEED, method='fastica')
-    ica.fit(raw_for_ica, verbose=False)
-    
-    # Identify Frontal Channels (likely contaminated by blinks)
-    frontal_chans = [ch for ch in ['Fp1', 'Fp2', 'AF3', 'AF4', 'Fpz', 'FP1', 'FP2', 'FPZ'] if ch in raw.ch_names]
-    
-    if frontal_chans:
-        # MNE-native way to find EOG-like components using frontal channels as proxies
-        eog_indices, eog_scores = ica.find_bads_eog(raw, ch_name=frontal_chans, verbose=False)
-        ica.exclude = eog_indices
-        if not ica.exclude:
-            # Fallback if no high correlation found: just drop the most 'frontal' component if variance is high
-            ica.exclude = [0] 
-        print(f"    -> ICA: Spatial Audit found {len(ica.exclude)} artifact components correlating with {frontal_chans}")
-    else:
-        # If no frontal channels, be extremely conservative (only drop component 0)
-        ica.exclude = [0]
-        print(f"    -> ICA: No frontal channels found. Conservative audit: excluding component 0 only.")
-    ica.apply(raw, verbose=False)
+    # Preprocessing Step 5 moved to evaluate.py / ensemble.py to prevent data leakage.
     
     # Preprocessing Step 6: Epoching
     events, event_id = mne.events_from_annotations(raw, verbose=False)
@@ -101,7 +80,7 @@ def get_clean_data(dataset_name='BNCI2014_009', subj=1, apply_decimation=True):
         original_sfreq = raw.info['sfreq']
         decim = 1
         for d in [2, 3, 4]:
-            if (original_sfreq / d) >= 60.0:
+            if (original_sfreq / d) >= 75.0:
                 decim = d
         
         if decim > 1:
@@ -109,3 +88,31 @@ def get_clean_data(dataset_name='BNCI2014_009', subj=1, apply_decimation=True):
             print(f"    -> Nyquist Fix: Decimation factor {decim} applied. New sfreq: {original_sfreq/decim:.1f} Hz (Safe for 30Hz BW)")
         
     return epochs, epochs.get_data(), (epochs.events[:, -1] == target_id).astype(int)
+
+def apply_spatial_ica(epochs_train, epochs_test):
+    """
+    Fits ICA on training epochs and applies it to both train and test to prevent leakage.
+    Uses Spatial Audit to only exclude EOG-correlated components.
+    """
+    ica = ICA(n_components=min(len(epochs_train.ch_names), 15), random_state=SEED, method='fastica')
+    # Filter a copy of training data for better ICA fitting (1Hz highpass)
+    epochs_for_ica = epochs_train.copy().filter(l_freq=1.0, h_freq=None, verbose=False)
+    ica.fit(epochs_for_ica, verbose=False)
+    
+    frontal_chans = [ch for ch in ['Fp1', 'Fp2', 'AF3', 'AF4', 'Fpz', 'FP1', 'FP2', 'FPZ'] if ch in epochs_train.ch_names]
+    
+    if frontal_chans:
+        eog_indices, eog_scores = ica.find_bads_eog(epochs_train, ch_name=frontal_chans, verbose=False)
+        ica.exclude = eog_indices
+        if not ica.exclude:
+            # Bug #5 Fix: If no correlation, exclude NOTHING.
+            ica.exclude = []
+        print(f"    -> ICA: Spatial Audit found {len(ica.exclude)} artifact components correlating with {frontal_chans}")
+    else:
+        ica.exclude = [] # Be perfectly safe if no frontal channel
+        print(f"    -> ICA: No frontal channels found. Excluding nothing.")
+        
+    ica.apply(epochs_train, verbose=False)
+    ica.apply(epochs_test, verbose=False)
+    
+    return epochs_train, epochs_test
