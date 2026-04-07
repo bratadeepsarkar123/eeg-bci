@@ -69,7 +69,7 @@ if __name__ == "__main__":
             # To store fold metrics per model
             fold_metrics = {name: [] for name, _ in models_list}
 
-            # Bug #2 & Bug #4 Fix: Split without shuffling, apply bad-channel interpolation + ICA fold by fold
+            # Prevent leakage: split without shuffling and run train-fold-only preprocessing.
             for train_idx, test_idx in skf.split(np.zeros(len(y)), y):
                 # Train-fold-only preprocessing to prevent leakage
                 epochs_train_cv = epochs[train_idx].copy()

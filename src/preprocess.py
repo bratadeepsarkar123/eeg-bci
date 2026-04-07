@@ -63,7 +63,8 @@ def get_clean_data(dataset_name='BNCI2014_009', subj=1, apply_decimation=True):
     
     # Preprocessing Step 5: Dynamic Decimation (Nyquist-Shannon guard band fix)
     if apply_decimation:
-        # Target >=75Hz to maintain a safe guard band above 30Hz.
+        # Only apply decimation factors that keep the post-decimation rate >=75Hz;
+        # otherwise keep original sampling to preserve guard band above 30Hz.
         original_sfreq = raw.info['sfreq']
         decim = 1
         for d in [2, 3, 4]:
