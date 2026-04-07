@@ -125,6 +125,12 @@ if __name__ == "__main__":
                 print(f"    {name} -> F1: {avg_m[3]:.3f} | Acc: {avg_m[0]:.3f}")
 
     # --- REPORTING ---
+    if not all_summary:
+        raise RuntimeError(
+            "No subject evaluations succeeded. Dataset downloads likely failed; "
+            "cannot produce a valid benchmark report."
+        )
+
     df = pd.DataFrame(all_summary, columns=['Dataset', 'Subject', 'Model', 'Acc', 'Recall', 'Prec', 'F1'])
     df.to_csv('results/all_subject_results.csv', index=False)
     
