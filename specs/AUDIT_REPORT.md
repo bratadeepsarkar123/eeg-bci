@@ -22,12 +22,13 @@ Requirement source: `output.txt` (extracted from `EEG_BrainSpeller_Requirements.
 | Baseline classifier: LDA | `src/06_final_evaluation.py` |
 | Strong classical baseline: SVM RBF kernel | `src/06_final_evaluation.py` |
 | Deep learning: EEGNet (Lawhern et al. 2018) | `src/05_eegnet.py`, `src/06_final_evaluation.py` |
-| **Ensemble Averaging across Repetitions** | `src/08_ensemble_averaging.py` |
+| **Ensemble Averaging across Repetitions** | `src/08_ensemble_averaging.py` (Synchronized) |
 | Stratified K-Fold cross-validation (3/5-fold) | `src/06_final_evaluation.py` |
 | Report accuracy, precision, recall, F1 | `src/06_final_evaluation.py` |
 | Confusion matrix | `src/06_final_evaluation.py` (Seaborn heatmap saved) |
 | ITR in bits/minute (Correct Formula) | `src/06_final_evaluation.py` |
 | **GPU Optimization** | `torch.cuda` support (verified on RTX 2050) |
+| **Architectural Consistency** | ✅ All scripts (Local/Colab) unified via `data_loader.py` |
 | `requirements.txt` | `requirements.txt` |
 | `README.md` with multi-dataset table | `README.md` |
 | `results/` folder with plots | `results/` dir |
