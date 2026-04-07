@@ -127,8 +127,8 @@ if __name__ == "__main__":
     # --- REPORTING ---
     if not all_summary:
         raise RuntimeError(
-            "No subject evaluations succeeded. Dataset downloads likely failed; "
-            "cannot produce a valid benchmark report."
+            "No subject evaluations succeeded. Check dataset availability and "
+            "preprocessing logs; cannot produce a valid benchmark report."
         )
 
     df = pd.DataFrame(all_summary, columns=['Dataset', 'Subject', 'Model', 'Acc', 'Recall', 'Prec', 'F1'])
