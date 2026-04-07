@@ -16,7 +16,7 @@ from sklearn.svm import SVC
 from sklearn.metrics import accuracy_score, recall_score, precision_score, f1_score
 
 # Local Imports (Aligned with submission structure)
-from preprocess import get_clean_data, apply_spatial_ica
+from preprocess import get_clean_data, apply_bad_channel_interpolation, apply_spatial_ica
 from models import EEGNet
 
 # Global Config
@@ -58,7 +58,7 @@ if __name__ == "__main__":
                 print(f"    ! Error loading {ds_name} sub {subj}: {e}")
                 continue
 
-            skf = StratifiedKFold(n_splits=3, shuffle=False)
+            skf = StratifiedKFold(n_splits=5, shuffle=False)
             
             models_list = [
                 ("LDA", Pipeline([('scaler', StandardScaler()), ('lda', LinearDiscriminantAnalysis())])),
@@ -69,11 +69,12 @@ if __name__ == "__main__":
             # To store fold metrics per model
             fold_metrics = {name: [] for name, _ in models_list}
 
-            # Bug #2 & Bug #4 Fix: Split without shuffling, apply ICA fold by fold
+            # Prevent leakage: split without shuffling and run train-fold-only preprocessing.
             for train_idx, test_idx in skf.split(np.zeros(len(y)), y):
-                # ICA Spatial Audit inside CV Loop
+                # Train-fold-only preprocessing to prevent leakage
                 epochs_train_cv = epochs[train_idx].copy()
                 epochs_test_cv = epochs[test_idx].copy()
+                epochs_train_cv, epochs_test_cv = apply_bad_channel_interpolation(epochs_train_cv, epochs_test_cv)
                 epochs_train_cv, epochs_test_cv = apply_spatial_ica(epochs_train_cv, epochs_test_cv)
                 
                 # Transformed features
@@ -124,6 +125,12 @@ if __name__ == "__main__":
                 print(f"    {name} -> F1: {avg_m[3]:.3f} | Acc: {avg_m[0]:.3f}")
 
     # --- REPORTING ---
+    if not all_summary:
+        raise RuntimeError(
+            "No subject evaluations succeeded. Check dataset availability and "
+            "preprocessing logs; cannot produce a valid benchmark report."
+        )
+
     df = pd.DataFrame(all_summary, columns=['Dataset', 'Subject', 'Model', 'Acc', 'Recall', 'Prec', 'F1'])
     df.to_csv('results/all_subject_results.csv', index=False)
     
