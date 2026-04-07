@@ -16,10 +16,8 @@ def get_clean_data(dataset_name='BNCI2014_009', subj=1, apply_decimation=True):
     1. Bandpass: 0.1 - 30.0 Hz
     2. Notch: 50.0 Hz
     3. Average Re-referencing
-    4. Bad Channel Interpolation (Variance-based)
-    5. Adaptive ICA: Rejects only components correlating with frontal/eye channels
-    6. Epoching: tmin=-0.2, tmax=0.8, baseline=(-0.2, 0)
-    7. Dynamic Decimation: Targets ~64Hz sampling rate
+    4. Epoching: tmin=-0.2, tmax=0.8, baseline=(-0.2, 0)
+    5. Dynamic Decimation: Targets a Nyquist-safe rate for 30Hz bandwidth
     """
     
     # Step 0: Load Data
@@ -44,20 +42,10 @@ def get_clean_data(dataset_name='BNCI2014_009', subj=1, apply_decimation=True):
     # Preprocessing Step 3: Average Re-referencing
     raw.set_eeg_reference('average', verbose=False)
     
-    # Preprocessing Step 4: Bad Channel Interpolation
-    chan_data = raw.get_data()
-    chan_stds = np.std(chan_data, axis=1)
-    median_std = np.median(chan_stds)
-    mad = np.median(np.abs(chan_stds - median_std))
-    z_scores = np.abs(chan_stds - median_std) / (mad + 1e-8)
-    bad_idx = np.where(z_scores > 3.0)[0]
-    raw.info['bads'] = [raw.ch_names[i] for i in bad_idx]
-    if raw.info['bads']:
-        raw.interpolate_bads(reset_bads=True, verbose=False)
+    # Bad-channel interpolation and ICA are applied fold-by-fold in evaluation
+    # to prevent train/test leakage.
     
-    # Preprocessing Step 5 moved to evaluate.py / ensemble.py to prevent data leakage.
-    
-    # Preprocessing Step 6: Epoching
+    # Preprocessing Step 4: Epoching
     events, event_id = mne.events_from_annotations(raw, verbose=False)
     
     # Unified mapping: Target -> 1, Non-Target -> 0
@@ -73,10 +61,9 @@ def get_clean_data(dataset_name='BNCI2014_009', subj=1, apply_decimation=True):
     epochs = mne.Epochs(raw, events, event_id={'Target': target_id, 'NonTarget': nontarget_id},
                         tmin=-0.2, tmax=0.8, baseline=(-0.2, 0), preload=True, verbose=False)
     
-    # Preprocessing Step 7: Dynamic Decimation (Nyquist-Shannon Fix)
-    # We must stay > 60Hz sampling to represent 30Hz signals without aliasing.
+    # Preprocessing Step 5: Dynamic Decimation (Nyquist-Shannon guard band fix)
     if apply_decimation:
-        # Target ~62.5Hz or higher. For 250Hz, decim=4 is perfect (62.5Hz).
+        # Target >=75Hz to maintain a safe guard band above 30Hz.
         original_sfreq = raw.info['sfreq']
         decim = 1
         for d in [2, 3, 4]:
@@ -88,6 +75,29 @@ def get_clean_data(dataset_name='BNCI2014_009', subj=1, apply_decimation=True):
             print(f"    -> Nyquist Fix: Decimation factor {decim} applied. New sfreq: {original_sfreq/decim:.1f} Hz (Safe for 30Hz BW)")
         
     return epochs, epochs.get_data(), (epochs.events[:, -1] == target_id).astype(int)
+
+def apply_bad_channel_interpolation(epochs_train, epochs_test, z_thresh=3.0):
+    """
+    Detect bad channels from training epochs only and interpolate in both train/test.
+    """
+    train_data = epochs_train.get_data()
+    chan_stds = np.std(train_data, axis=(0, 2))
+    median_std = np.median(chan_stds)
+    mad = np.median(np.abs(chan_stds - median_std))
+    z_scores = np.abs(chan_stds - median_std) / (mad + 1e-8)
+    bad_idx = np.where(z_scores > z_thresh)[0]
+    bads = [epochs_train.ch_names[i] for i in bad_idx]
+    
+    if bads:
+        epochs_train.info['bads'] = bads
+        epochs_test.info['bads'] = bads
+        epochs_train.interpolate_bads(reset_bads=True, verbose=False)
+        epochs_test.interpolate_bads(reset_bads=True, verbose=False)
+        print(f"    -> Bad Channel Audit: Interpolated {len(bads)} channels from train fold stats: {bads}")
+    else:
+        print("    -> Bad Channel Audit: No bad channels detected in train fold.")
+    
+    return epochs_train, epochs_test
 
 def apply_spatial_ica(epochs_train, epochs_test):
     """

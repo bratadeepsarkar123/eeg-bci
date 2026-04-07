@@ -1,6 +1,6 @@
 import numpy as np
 import mne
-from preprocess import get_clean_data, apply_spatial_ica
+from preprocess import get_clean_data, apply_bad_channel_interpolation, apply_spatial_ica
 from sklearn.svm import SVC
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
@@ -30,6 +30,7 @@ idx_train, idx_test = train_test_split(idx, test_size=0.2, shuffle=False)
 # Bug #2 Fix: ICA inside CV loop
 epochs_train = epochs[idx_train].copy()
 epochs_test = epochs[idx_test].copy()
+epochs_train, epochs_test = apply_bad_channel_interpolation(epochs_train, epochs_test)
 epochs_train, epochs_test = apply_spatial_ica(epochs_train, epochs_test)
 
 X_train = epochs_train.get_data().reshape(len(idx_train), -1)
