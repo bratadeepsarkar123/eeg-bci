@@ -3,7 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import mne
 import warnings
-from data_loader import get_clean_data
+# Professional Imports
+from preprocess import get_clean_data
 
 warnings.filterwarnings('ignore')
 mne.set_log_level('WARNING')
@@ -13,6 +14,19 @@ def plot_dataset_erp(ax, dataset_name, subj=1):
     """Plots Target vs Non-Target ERP for a specific dataset/subject."""
     epochs_obj, X, y = get_clean_data(dataset_name=dataset_name, subj=subj, apply_decimation=False)
     
+    # 1. SCIENTIFIC FIX: Isolate P300-relevant channels
+    # Averaging all channels mixes early visual occipital responses (P200/VECP) 
+    # with the cognitive parietal response (P300).
+    p300_channels = ['Pz', 'Cz', 'Fz', 'PZ', 'CZ', 'FZ', 'P3', 'P4']
+    avail_chans = [ch for ch in p300_channels if ch in epochs_obj.ch_names]
+    
+    if avail_chans:
+        epochs_obj.pick(avail_chans)
+        X = epochs_obj.get_data()
+        print(f"    -> Isolated P300 channels for ERP: {avail_chans}")
+    else:
+        print(f"    -> WARNING: Standard P300 channels not found. Using all channels.")
+
     # Calculate Grand Average (mean trials, then mean channels)
     # X shape is (n_epochs, n_channels, n_times)
     target_erp = X[y == 1].mean(axis=0).mean(axis=0) * 1e6

@@ -17,9 +17,9 @@ def get_clean_data(dataset_name='BNCI2014_009', subj=1, apply_decimation=True):
     2. Notch: 50.0 Hz
     3. Average Re-referencing
     4. Bad Channel Interpolation (Variance-based)
-    5. ICA Artifact Rejection (Excluding first 2 components)
+    5. Adaptive ICA: Rejects only components correlating with frontal/eye channels
     6. Epoching: tmin=-0.2, tmax=0.8, baseline=(-0.2, 0)
-    7. Decimation: Factor of 8
+    7. Dynamic Decimation: Targets ~64Hz sampling rate
     """
     
     # Step 0: Load Data
@@ -55,12 +55,27 @@ def get_clean_data(dataset_name='BNCI2014_009', subj=1, apply_decimation=True):
     if raw.info['bads']:
         raw.interpolate_bads(reset_bads=True, verbose=False)
     
-    # Preprocessing Step 5: ICA Artifact Rejection
-    # Using a 1Hz highpass copy for better ICA fit
+    # Preprocessing Step 5: Adaptive ICA Artifact Rejection
+    # Instead of blindly excluding 0/1, we audit components spatially.
     raw_for_ica = raw.copy().filter(l_freq=1.0, h_freq=None, verbose=False)
     ica = ICA(n_components=min(len(raw.ch_names), 15), random_state=SEED, method='fastica')
     ica.fit(raw_for_ica, verbose=False)
-    ica.exclude = [0, 1] 
+    
+    # Identify Frontal Channels (likely contaminated by blinks)
+    frontal_chans = [ch for ch in ['Fp1', 'Fp2', 'AF3', 'AF4', 'Fpz', 'FP1', 'FP2', 'FPZ'] if ch in raw.ch_names]
+    
+    if frontal_chans:
+        # MNE-native way to find EOG-like components using frontal channels as proxies
+        eog_indices, eog_scores = ica.find_bads_eog(raw, ch_name=frontal_chans, verbose=False)
+        ica.exclude = eog_indices
+        if not ica.exclude:
+            # Fallback if no high correlation found: just drop the most 'frontal' component if variance is high
+            ica.exclude = [0] 
+        print(f"    -> ICA: Spatial Audit found {len(ica.exclude)} artifact components correlating with {frontal_chans}")
+    else:
+        # If no frontal channels, be extremely conservative (only drop component 0)
+        ica.exclude = [0]
+        print(f"    -> ICA: No frontal channels found. Conservative audit: excluding component 0 only.")
     ica.apply(raw, verbose=False)
     
     # Preprocessing Step 6: Epoching
@@ -79,8 +94,18 @@ def get_clean_data(dataset_name='BNCI2014_009', subj=1, apply_decimation=True):
     epochs = mne.Epochs(raw, events, event_id={'Target': target_id, 'NonTarget': nontarget_id},
                         tmin=-0.2, tmax=0.8, baseline=(-0.2, 0), preload=True, verbose=False)
     
-    # Preprocessing Step 7: Decimation
+    # Preprocessing Step 7: Dynamic Decimation (Nyquist-Shannon Fix)
+    # We must stay > 60Hz sampling to represent 30Hz signals without aliasing.
     if apply_decimation:
-        epochs.decimate(8)
+        # Target ~62.5Hz or higher. For 250Hz, decim=4 is perfect (62.5Hz).
+        original_sfreq = raw.info['sfreq']
+        decim = 1
+        for d in [2, 3, 4]:
+            if (original_sfreq / d) >= 60.0:
+                decim = d
+        
+        if decim > 1:
+            epochs.decimate(decim)
+            print(f"    -> Nyquist Fix: Decimation factor {decim} applied. New sfreq: {original_sfreq/decim:.1f} Hz (Safe for 30Hz BW)")
         
     return epochs, epochs.get_data(), (epochs.events[:, -1] == target_id).astype(int)

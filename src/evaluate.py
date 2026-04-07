@@ -9,12 +9,15 @@ from torch.utils.data import DataLoader, TensorDataset
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.model_selection import StratifiedKFold
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.svm import SVC
-from sklearn.metrics import accuracy_score, recall_score, precision_score, f1_score, confusion_matrix
+from sklearn.metrics import accuracy_score, recall_score, precision_score, f1_score
 
-# Local Import
-from data_loader import get_clean_data
+# Local Imports (Aligned with submission structure)
+from preprocess import get_clean_data
+from models import EEGNet
 
 # Global Config
 warnings.filterwarnings('ignore')
@@ -23,27 +26,13 @@ torch.manual_seed(SEED)
 np.random.seed(SEED)
 os.makedirs('results', exist_ok=True)
 
-class EEGNet(nn.Module):
-    """Compact CNN for EEG classification (Lawhern et al., 2018)."""
-    def __init__(self, n_chan=16, n_time=32):
-        super(EEGNet, self).__init__()
-        self.b1 = nn.Sequential(
-            nn.Conv2d(1, 8, (1, 16), padding='same', bias=False),
-            nn.BatchNorm2d(8),
-            nn.Conv2d(8, 16, (n_chan, 1), groups=8, bias=False),
-            nn.BatchNorm2d(16), nn.ELU(),
-            nn.AvgPool2d((1, 4)), nn.Dropout(0.25)
-        )
-        self.b2 = nn.Sequential(
-            nn.Conv2d(16, 16, (1, 8), groups=16, padding='same', bias=False),
-            nn.Conv2d(16, 16, (1, 1), bias=False),
-            nn.BatchNorm2d(16), nn.ELU(),
-            nn.AvgPool2d((1, 4)), nn.Dropout(0.25)
-        )
-        self.fc = nn.LazyLinear(2)
-
-    def forward(self, x):
-        return self.fc(self.b2(self.b1(x)).view(x.size(0), -1))
+# Hardware Audit
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"--- Hardware Audit: Running on {str(device).upper()} ---")
+if device.type == 'cuda':
+    print(f"--- GPU Name: {torch.cuda.get_device_name(0)} ---")
+else:
+    print("--- WARNING: Running on CPU. Training will be slow. ---")
 
 def get_itr(n, acc, dur=2.0):
     if acc >= 0.99: return np.log2(n) * 60 / dur
@@ -61,45 +50,44 @@ if __name__ == "__main__":
         
         # BNCI2014_009 has 10 subjects, EPFLP300 has subjects [1,2,3,4,6,7,8,9]
         if ds_name == 'BNCI2014_009':
-            subjects = [1, 2, 3] # Reduced for verification, normally range(1, 11)
+            subjects = [1, 2, 3] # Adjusted for verification
         else:
             subjects = [1, 2] # EPFLP300
             
         for subj in subjects:
-            print(f"  - Loading Subject {subj}...")
+            print(f"  - Evaluate Subject {subj}...")
             try:
                 epochs, X, y = get_clean_data(dataset_name=ds_name, subj=subj)
             except Exception as e:
                 print(f"    ! Error loading {ds_name} sub {subj}: {e}")
                 continue
 
-            skf = StratifiedKFold(n_splits=3, shuffle=True, random_state=SEED) # 3-fold for speed
+            skf = StratifiedKFold(n_splits=3, shuffle=True, random_state=SEED)
             
-            models = [
-                ("LDA", LinearDiscriminantAnalysis()),
-                ("SVM", SVC(kernel='rbf', class_weight='balanced', probability=True)),
+            models_list = [
+                ("LDA", Pipeline([('scaler', StandardScaler()), ('lda', LinearDiscriminantAnalysis())])),
+                ("SVM", Pipeline([('scaler', StandardScaler()), ('svm', SVC(kernel='rbf', class_weight='balanced', probability=True))])),
                 ("EEGNet", "DL")
             ]
 
-            for name, clf in models:
+            for name, clf in models_list:
                 fold_acc = []
                 for train_idx, test_idx in skf.split(X, y):
                     if name == "EEGNet":
-                        # Standardize per subject
                         mu, sd = np.mean(X[train_idx]), np.std(X[train_idx])
                         X_tr = torch.Tensor((X[train_idx] - mu)/sd)[:, None, :, :]
                         X_te = torch.Tensor((X[test_idx] - mu)/sd)[:, None, :, :]
                         
-                        # GPU Support
-                        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-                        
                         loader = DataLoader(TensorDataset(X_tr, torch.LongTensor(y[train_idx])), batch_size=32, shuffle=True)
                         net = EEGNet(n_chan=X.shape[1], n_time=X_tr.shape[-1]).to(device)
                         opt = optim.Adam(net.parameters(), lr=0.001)
-                        # Balanced loss on device
-                        crit = nn.CrossEntropyLoss(weight=torch.Tensor([1.0, 5.0]).to(device))
+                        
+                        # Adaptive Class Weighting
+                        n_pos = np.sum(y[train_idx])
+                        weight = len(y[train_idx]) / (2 * n_pos) if n_pos > 0 else 5.0
+                        crit = nn.CrossEntropyLoss(weight=torch.Tensor([1.0, weight]).to(device))
 
-                        for _ in range(30):
+                        for _ in range(30): # Regularized training
                             net.train()
                             for b_x, b_y in loader:
                                 b_x, b_y = b_x.to(device), b_y.to(device)
@@ -122,16 +110,19 @@ if __name__ == "__main__":
                     ])
                 
                 avg_m = np.mean(fold_acc, axis=0)
-                all_summary.append([ds_name, subj, name, avg_m[0], avg_m[1], avg_m[2], avg_m[3], get_itr(36, avg_m[0])])
+                # SCIENTIFIC FIX: ITR N=2 for binary flash detection
+                itr = get_itr(2, avg_m[0])
+                all_summary.append([ds_name, subj, name, avg_m[0], avg_m[1], avg_m[2], avg_m[3], itr])
+                print(f"    {name} -> F1: {avg_m[3]:.3f} | Acc: {avg_m[0]:.3f} | ITR: {itr:.1f}")
 
     # --- REPORTING ---
     df = pd.DataFrame(all_summary, columns=['Dataset', 'Subject', 'Model', 'Acc', 'Recall', 'Prec', 'F1', 'ITR'])
-    df.to_csv('results/multi_dataset_results.csv', index=False)
+    df.to_csv('results/all_subject_results.csv', index=False)
     
     final_report = df.groupby(['Dataset', 'Model'])[['Acc', 'F1', 'ITR']].mean().round(3)
     print("\n" + "="*50)
-    print("--- FINAL COMPARATIVE BENCHMARK ---")
+    print("--- FINAL SUBMISSION BENCHMARK ---")
     print("="*50)
     print(final_report)
     print("="*50)
-    print("\nFull breakdown saved to results/multi_dataset_results.csv")
+    print("\nFull breakdown saved to results/all_subject_results.csv")

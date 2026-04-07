@@ -1,7 +1,9 @@
 import numpy as np
 import mne
-from data_loader import get_clean_data
+from preprocess import get_clean_data
 from sklearn.svm import SVC
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
 import warnings
@@ -11,6 +13,12 @@ mne.set_log_level('WARNING')
 
 N_CYCLE = 12  # 6 rows + 6 columns per repetition cycle in BNCI2014_009
 
+def get_itr(n, acc, dur=2.0):
+    """Calculates Information Transfer Rate (bits/min)."""
+    if acc >= 0.99: return np.log2(n) * 60 / dur
+    if acc <= 1/n: return 0
+    return (np.log2(n) + acc*np.log2(acc) + (1-acc)*np.log2((1-acc)/(n-1))) * 60 / dur
+
 # Load and preprocess using the centralized A+ Grade pipeline
 print("--- Loading data via centralized data_loader ---")
 epochs, X_raw, y_raw = get_clean_data(dataset_name='BNCI2014_009', subj=1)
@@ -19,14 +27,17 @@ epochs, X_raw, y_raw = get_clean_data(dataset_name='BNCI2014_009', subj=1)
 X = X_raw.reshape(len(X_raw), -1)
 y = y_raw
 
-# Split into train/test
+# SCIENTIFIC FIX: Disable shuffle to preserve temporal/block structure
 X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, stratify=y, random_state=42
+    X, y, test_size=0.2, shuffle=False
 )
 
-# Train SVM with probability output enabled (required for soft ensemble)
-print("--- Training SVM Baseline ---")
-clf = SVC(kernel='rbf', class_weight='balanced', probability=True, random_state=42)
+# Train SVM with scaling pipeline
+print("--- Training SVM Baseline (with scaling) ---")
+clf = Pipeline([
+    ('scaler', StandardScaler()),
+    ('svm', SVC(kernel='rbf', class_weight='balanced', probability=True, random_state=42))
+])
 clf.fit(X_train, y_train)
 
 # --- Single-trial evaluation ---
@@ -55,10 +66,14 @@ for i in range(n_blocks):
 
 ensemble_acc = n_correct / n_blocks if n_blocks > 0 else 0.0
 
+# Character-level ITR (N=36)
+ensemble_itr = get_itr(36, ensemble_acc, dur=N_CYCLE * 0.2) # Assuming 200ms per flash
+
 print("\n--- FINAL ENSEMBLE CONSISTENCY REPORT ---")
 print(f"Dataset:                  BNCI2014_009 (Subject 1)")
-print(f"Preprocessing:            7-Step Consistent Pipeline (data_loader.py)")
+print(f"Preprocessing:            7-Step Consistent Pipeline (preprocess.py)")
 print(f"Block size:               {N_CYCLE} flashes per cycle")
 print(f"Single-trial accuracy:    {single_trial_acc:.3f}")
 print(f"Ensemble accuracy:        {ensemble_acc:.3f}")
+print(f"Character-Level ITR:      {ensemble_itr:.1f} bits/min (N=36)")
 print(f"Improvement:              +{(ensemble_acc - single_trial_acc):.3f}")
