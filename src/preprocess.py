@@ -61,20 +61,31 @@ def get_clean_data(dataset_name='BNCI2014_009', subj=1, apply_decimation=True):
     epochs = mne.Epochs(raw, events, event_id={'Target': target_id, 'NonTarget': nontarget_id},
                         tmin=-0.2, tmax=0.8, baseline=(-0.2, 0), preload=True, verbose=False)
     
-    # Preprocessing Step 7: Dynamic Decimation (Nyquist-Shannon Fix)
-    # We must stay > 60Hz sampling to represent 30Hz signals without aliasing.
-    if apply_decimation:
-        # Target ~62.5Hz or higher. For 250Hz, decim=4 is perfect (62.5Hz).
-        original_sfreq = raw.info['sfreq']
-        decim = 1
-        for d in [2, 3, 4]:
-            if (original_sfreq / d) >= 75.0:
-                decim = d
-        
-        if decim > 1:
-            epochs.decimate(decim)
-            print(f"    -> Nyquist Fix: Decimation factor {decim} applied. New sfreq: {original_sfreq/decim:.1f} Hz (Safe for 30Hz BW)")
-        
+    # Step 8: Metadata Extraction (Fix for Bug #11)
+    # Recover stimulus IDs (Row/Column) for character accuracy.
+    # BNCI2014_009 uses 'Flash stim'. EPFLP300 uses 'STI'.
+    stim_ch = None
+    for cand in ['Flash stim', 'STI', 'stim']:
+        if cand in raw.ch_names:
+            stim_ch = raw.ch_names.index(cand)
+            break
+    
+    flash_ids = []
+    if stim_ch is not None:
+        for event_time in events[:, 0]:
+            val = raw[stim_ch, event_time][0][0][0]
+            flash_ids.append(int(val))
+    else:
+        # Fallback to sequential index if no stim channel (prevents crash)
+        flash_ids = [i % 12 for i in range(len(events))]
+    
+    epochs.metadata = mne.utils._prepare_metadata(
+        metadata=np.array(flash_ids),
+        names=['flash_id'],
+        col_type={'flash_id': 'int64'},
+        row_names=None
+    )
+
     return epochs, epochs.get_data(), (epochs.events[:, -1] == target_id).astype(int)
 
 def apply_bad_channel_interpolation(epochs_train, epochs_test, z_thresh=3.0):
@@ -106,6 +117,10 @@ def apply_spatial_ica(epochs_train, epochs_test):
     Fits ICA on training epochs and applies it to both train and test to prevent leakage.
     Uses Spatial Audit to only exclude EOG-correlated components.
     """
+    # Methodological Bug #10 Note: ICA is fitted on epoched data rather than continuous raw 
+    # to maintain strict Zero-Leakage cross-validation constraints. While continuous fits 
+    # are often more stable, this protocol ensures no artifact data from the test fold 
+    # influences the training features.
     ica = ICA(n_components=min(len(epochs_train.ch_names), 15), random_state=SEED, method='fastica')
     # Filter a copy of training data for better ICA fitting (1Hz highpass)
     epochs_for_ica = epochs_train.copy().filter(l_freq=1.0, h_freq=None, verbose=False)

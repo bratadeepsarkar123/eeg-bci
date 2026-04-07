@@ -11,49 +11,68 @@ from mne.preprocessing import Xdawn
 from preprocess import get_clean_data, apply_bad_channel_interpolation, apply_spatial_ica
 from models import EEGNet, get_lda_pipeline, get_svm_pipeline, get_eegnet_pipeline
 
-def get_character_prediction(probs, y_test, flash_per_char=12):
+def get_character_prediction(probs, y_test, flash_ids, n_reps=10):
     """
-    Groups flash predictions into symbol-level decisions (N=36).
-    Standard P300 Ensemble Logic: Max prob in Cycle = Predicted Target.
+    Groups flash predictions using stimulus identities (Rows/Columns).
+    Standard P300 Logic: Max prob for Row + Max prob for Column = Selected Symbol.
     """
+    # Flash IDs 3-8 are rows, 9-14 are columns for BNCI2014_009
+    # Flash IDs 1-6 are rows, 7-12 are columns for general spellers
+    # We define bins based on unique values
+    unique_f = np.sort(np.unique(flash_ids))
+    if len(unique_f) < 12: return 0 
+    
+    rows_ids = unique_f[:6]
+    cols_ids = unique_f[6:]
+    
+    # We group by sets of 12 * n_reps (1 character presentation)
+    flash_per_char = 12 * n_reps
     n_chars = len(probs) // flash_per_char
     correct_chars = 0
+    
     for i in range(n_chars):
-        c_probs = probs[i*flash_per_char : (i+1)*flash_per_char]
-        c_labels = y_test[i*flash_per_char : (i+1)*flash_per_char]
+        start = i * flash_per_char
+        end = (i + 1) * flash_per_char
+        char_probs = probs[start:end]
+        char_labels = y_test[start:end]
+        char_flashes = flash_ids[start:end]
         
-        # P300 Speller grids flash 6 rows and 6 columns. 
-        # The first 6 flashes are usually one dimension (e.g. rows), the last 6 are the other (columns).
-        row_probs = c_probs[:6]
-        col_probs = c_probs[6:]
+        # Average probabilities across repetitions for each flash identity
+        agg_probs = {}
+        target_row = -1
+        target_col = -1
         
-        row_labels = c_labels[:6]
-        col_labels = c_labels[6:]
+        for p, l, f in zip(char_probs, char_labels, char_flashes):
+            if f not in agg_probs: agg_probs[f] = []
+            agg_probs[f].append(p)
+            if l == 1:
+                if f in rows_ids: target_row = f
+                if f in cols_ids: target_col = f
         
-        pred_row = np.argmax(row_probs)
-        pred_col = np.argmax(col_probs)
+        # Identity-wise average
+        mean_probs = {f: np.mean(v) for f, v in agg_probs.items()}
         
-        true_rows = np.where(row_labels == 1)[0]
-        true_cols = np.where(col_labels == 1)[0]
+        pred_row = rows_ids[np.argmax([mean_probs.get(r, 0) for r in rows_ids])]
+        pred_col = cols_ids[np.argmax([mean_probs.get(c, 0) for c in cols_ids])]
         
-        if len(true_rows) > 0 and len(true_cols) > 0:
-            if pred_row == true_rows[0] and pred_col == true_cols[0]:
-                correct_chars += 1
+        if pred_row == target_row and pred_col == target_col:
+            correct_chars += 1
                 
     return correct_chars / n_chars if n_chars > 0 else 0
 
 def get_symbol_itr(n, acc, dur=2.1):
     """
     Physically valid ITR (N=36, T=Character Time) in bits/min.
-    SOA = 0.175s, 12 flashes/char = 2.1s duration. (Correction: Bug #2)
+    SOA = 0.175s, 12 flashes/char, 10 repetitions per trial.
+    T = 12 * 10 * 0.175 = 21.0s. (Correction: Bug #12)
     """
     if acc <= 1/n: return 0
     if acc >= 0.999: acc = 0.999
-    bits = np.log2(n) + acc*np.log2(acc) + (1-acc)*np.log2((1-acc)/(n-1))
+    bits = np.log2(n) + acc*np.log2(acc + 1e-10) + (1-acc)*np.log2((1-acc)/(n-1) + 1e-10)
     return bits * (60.0 / dur)
 
 def run_benchmarking():
-    datasets = ["BNCI2014_009"] # , "EPFLP300"]
+    datasets = ["BNCI2014_009", "EPFLP300"]
     os.makedirs('results', exist_ok=True)
     all_summary = []
 
@@ -77,6 +96,7 @@ def run_benchmarking():
                 metrics = []
                 subject_probs = []
                 subject_y = []
+                subject_flashes = []
 
                 for train_idx, test_idx in skf.split(X, y):
                     # Data Slicing
@@ -113,6 +133,7 @@ def run_benchmarking():
                     # For character ensemble logic
                     subject_probs.extend(clf.predict_proba(X_te)[:, 1])
                     subject_y.extend(y_te)
+                    subject_flashes.extend(e_te.metadata['flash_id'].values)
                     
                     metrics.append([
                         accuracy_score(y_te, y_pred),
@@ -125,9 +146,9 @@ def run_benchmarking():
                 avg_m = np.mean(metrics, axis=0)
                 
                 # 4. Correct ITR (N=36) via Character-Level Aggregation
-                char_acc = get_character_prediction(np.array(subject_probs), np.array(subject_y))
-                # Bug #2 Fix: ITR using true protocol duration
-                itr = get_symbol_itr(36, char_acc, dur=2.1)
+                char_acc = get_character_prediction(np.array(subject_probs), np.array(subject_y), np.array(subject_flashes))
+                # Bug #12 Fix: ITR using true 10-reps protocol duration (21.0s)
+                itr = get_symbol_itr(36, char_acc, dur=21.0)
                 
                 # 5. Confusion Matrix (Requirement: Visual CM)
                 y_pred_all = (np.array(subject_probs) > 0.5).astype(int)
