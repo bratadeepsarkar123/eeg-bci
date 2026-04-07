@@ -6,12 +6,9 @@ from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.svm import SVC
 from skorch import NeuralNetClassifier
 import torch.optim as optim
-
 class EEGNet(nn.Module):
-    """Compact CNN for EEG classification (Lawhern et al., 2018)."""
     def __init__(self, n_chan=16, n_time=32):
         super(EEGNet, self).__init__()
-        # Block 1: Temporal & Spatial Convolutions
         self.b1 = nn.Sequential(
             nn.Conv2d(1, 8, (1, 16), padding='same', bias=False),
             nn.BatchNorm2d(8),
@@ -19,7 +16,6 @@ class EEGNet(nn.Module):
             nn.BatchNorm2d(16), nn.ELU(),
             nn.AvgPool2d((1, 4)), nn.Dropout(0.25)
         )
-        # Block 2: Separable Convolutions
         self.b2 = nn.Sequential(
             nn.Conv2d(16, 16, (1, 8), groups=16, padding='same', bias=False),
             nn.Conv2d(16, 16, (1, 1), bias=False),
@@ -27,29 +23,21 @@ class EEGNet(nn.Module):
             nn.AvgPool2d((1, 4)), nn.Dropout(0.25)
         )
         self.fc = nn.LazyLinear(2)
-
     def forward(self, x):
         return self.fc(self.b2(self.b1(x)).view(x.size(0), -1))
-
 def get_lda_pipeline():
-    """Standard Baseline: Scaler + LDA."""
     return Pipeline([
         ('scaler', StandardScaler()),
         ('lda', LinearDiscriminantAnalysis())
     ])
-
 def get_svm_pipeline():
-    """Strong Classical Baseline: Scaler + RBF SVM."""
     return Pipeline([
         ('scaler', StandardScaler()),
         ('svm', SVC(probability=True, kernel='rbf'))
     ])
-
 def get_eegnet_pipeline():
-    """Deep Learning Baseline (EEGNet) using skorch."""
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     weight = torch.tensor([1.0, 5.0], device=device)
-    
     return NeuralNetClassifier(
         EEGNet,
         criterion=nn.CrossEntropyLoss,
@@ -60,10 +48,6 @@ def get_eegnet_pipeline():
         batch_size=32,
         device=device,
         iterator_train__shuffle=True,
-        train_split=None, # We handle CV manually
+        train_split=None, 
         verbose=0
     )
-
-# Note: Xdawn is usually implemented as a spatial filter fit on train epochs.
-# Since it takes Epochs as input (supervised), it's called manually in the CV loop 
-# in evaluate.py but uses the LDA pipeline for classification.
