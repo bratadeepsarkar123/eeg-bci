@@ -1,8 +1,8 @@
-# P300 BCI Speller Pipeline (Professional Submission)
+# P300 BCI Speller Pipeline
 
 A high-performance, modular Brain-Computer Interface (BCI) speller pipeline built with **MNE-Python**, **PyTorch**, and **MOABB**. This project implements a full A+ Grade signal processing chain and a deep learning benchmarking engine (EEGNet) optimized for NVIDIA RTX 2050 hardware.
 
-## 🚀 Professional Submission Structure
+## Professional Submission Structure
 This repository is organized into a modular structure as requested by the 100% compliance rubric:
 
 | File | Category | Purpose |
@@ -14,7 +14,7 @@ This repository is organized into a modular structure as requested by the 100% c
 | `src/visualization.py` | **Analytics** | Side-by-side Grand Average ERP comparisons. |
 | `src/ensemble.py` | **Reliability** | Decision-averaging logic to boost speller accuracy. |
 
-## 📊 Final Scientifically Validated Results (5-Fold Grouped CV)
+## Final Scientifically Validated Results (5-Fold Grouped CV)
 Verified on NVIDIA GPU. These results reflect the **Zero-Leakage** protocol with **Grouped CV** to preserve character block consistency.
 
 | **BNCI2014_009** | **EEGNet** | **0.865** | **0.678** | **6.55 bpm** |
@@ -27,25 +27,25 @@ Verified on NVIDIA GPU. These results reflect the **Zero-Leakage** protocol with
 ### **Audit Report: Compliance & Bug Fixes**
 | ID | Issue | Resolution | Status |
 | :--- | :--- | :--- | :--- |
-| **1** | **Nyquist Safety** | Increased decimation guard-band to target ≥75 Hz sampling (sfreq=85.3Hz for BNCI). Prevents 30Hz signal aliasing. | ✅ Fixed |
-| **4** | **Temporal Bias** | Disabled `shuffle` and moved to **GroupKFold** (grouped by Character ID). | ✅ Fixed |
-| **5-6**| **Signal Integrity**| Bad Channel Interp/ICA inside fold loop; Isoltated ERP channels for GA. | ✅ Fixed |
-| **8** | **Benchmarks** | Integrated **EEGNet**, **Xdawn**, and **SVM/LDA** baselines. | ✅ Fixed |
-| **9** | **Master Parity**| Overwrote `colab_master.py` to match verified modular logic. | ✅ Fixed |
-| **10**| **Methodology**| ICA fitted on epoched data to maintain zero-leakage constraints. | ✅ Fixed |
-| **11**| **Stimulus IDs**| Recovered true stimulus order from 'Flash stim' channel. Fixed randomized flash identity bug. | ✅ Fixed |
-| **12**| **ITR Math** | Corrected duration to **21.0s** for 10-reps protocol. ITR is now scientifically valid. | ✅ Fixed |
+| **1** | **Nyquist Safety** | Increased decimation guard-band to target ≥75 Hz sampling (sfreq=85.3Hz for BNCI). Prevents 30Hz signal aliasing. | Fixed |
+| **4** | **Temporal Bias** | Disabled `shuffle` and moved to **GroupKFold** (grouped by Character ID). | Fixed |
+| **5-6**| **Signal Integrity**| Bad Channel Interp/ICA inside fold loop; Isoltated ERP channels for GA. | Fixed |
+| **8** | **Benchmarks** | Integrated **EEGNet**, **Xdawn**, and **SVM/LDA** baselines. | Fixed |
+| **9** | **Master Parity**| Overwrote `colab_master.py` to match verified modular logic. | Fixed |
+| **10**| **Methodology**| ICA fitted on epoched data to maintain zero-leakage constraints. | Fixed |
+| **11**| **Stimulus IDs**| Recovered true stimulus order from 'Flash stim' channel. Fixed randomized flash identity bug. | Fixed |
+| **12**| **ITR Math** | Corrected duration to **21.0s** for 10-reps protocol. ITR is now scientifically valid. | Fixed |
 
-### **📡 Character-Level Logic ($N=36, T=12s$)**
+### **Character-Level Logic ($N=36, T=12s$)**
 Integrated into `src/evaluate.py` as mandated by the project rubric. We now report the **Primary Metric (ITR)** based on the speller's symbol selection speed.
 - **Ensemble Result**: 62.5% Character Accuracy (Subject 1, EEGNet)
 - **Primary Metric**: **6.55 bits/min** (Scientifically Validated for 10-rep protocol)
 
-### **📈 Visual Assets**
+### **Visual Assets**
 - **Confusion Matrices**: Saved in `results/cm_*.png`.
 - **Benchmark CSV**: Detailed subject metrics in `results/all_subject_results.csv`.
 
-## 🛠️ How to Run
+## How to Run
 1. **Setup Environment**:
    ```powershell
    .\eeg_env\Scripts\activate
