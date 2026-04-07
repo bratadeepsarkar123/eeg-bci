@@ -4,7 +4,7 @@ import warnings
 from sklearn.svm import SVC
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, GroupKFold
 
 # Local Imports (Zero-Leakage & Modular)
 from preprocess import get_clean_data, apply_bad_channel_interpolation, apply_spatial_ica
@@ -25,8 +25,9 @@ def run_ensemble_benchmark():
     
     epochs, X, y = get_clean_data(ds_name, subj)
     
-    # Bug #3 Fix: KFold (shuffle=False) keeps chronological blocks intact automatically
-    skf = KFold(n_splits=5, shuffle=False)
+    # GroupKFold (Bug #4 Fix): keeps full characters (120 epochs) together.
+    skf = GroupKFold(n_splits=5)
+    groups = epochs.metadata['char_id'].values
     
     # Model: Standard RBF-SVM Pipeline
     clf = Pipeline([
@@ -36,8 +37,9 @@ def run_ensemble_benchmark():
     
     subject_probs = []
     subject_y = []
+    subject_flashes = []
 
-    for fold, (train_idx, test_idx) in enumerate(skf.split(X, y)):
+    for fold, (train_idx, test_idx) in enumerate(skf.split(X, y, groups=groups)):
         print(f"  Fold {fold+1}/5...")
         # Data Slicing
         e_tr, e_te = epochs[train_idx].copy(), epochs[test_idx].copy()
@@ -45,6 +47,11 @@ def run_ensemble_benchmark():
 
         # 1. Zero-Leakage Preprocessing (Per-fold)
         e_tr, e_te = apply_bad_channel_interpolation(e_tr, e_te)
+        
+        # 2. Average Re-reference (Step 3 - Moved here for scientific accuracy)
+        e_tr.set_eeg_reference('average', verbose=False)
+        e_te.set_eeg_reference('average', verbose=False)
+        
         e_tr, e_te = apply_spatial_ica(e_tr, e_te)
         
         # 2. Features
@@ -55,14 +62,16 @@ def run_ensemble_benchmark():
         clf.fit(X_tr, y_tr)
         subject_probs.extend(clf.predict_proba(X_te)[:, 1])
         subject_y.extend(y_te)
+        subject_flashes.extend(e_te.metadata['flash_id'].values)
 
     # 4. Final Character-Level Analysis
     probs = np.array(subject_probs)
     y_test = np.array(subject_y)
+    flashes = np.array(subject_flashes)
     
-    char_acc = get_character_prediction(probs, y_test, flash_per_char=12)
-    # Bug #2 Fix: True duration 2.1s
-    itr_n36 = get_symbol_itr(36, char_acc, dur=2.1)
+    char_acc = get_character_prediction(probs, y_test, flashes)
+    # Bug #12 Fix: ITR using true 10-reps protocol duration (21.0s)
+    itr_n36 = get_symbol_itr(36, char_acc, dur=21.0)
 
     print("\n--- FINAL ENSEMBLE REPORT ---")
     print(f"Character Accuracy (N=36): {char_acc*100:.1f}%")

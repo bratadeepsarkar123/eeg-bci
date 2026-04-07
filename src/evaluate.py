@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, GroupKFold
 from sklearn.metrics import accuracy_score, recall_score, precision_score, f1_score, confusion_matrix
 from mne.preprocessing import Xdawn
 
@@ -80,8 +80,9 @@ def run_benchmarking():
         for subj in range(1, 2): # Subject 1 as benchmark
             print(f"\n--- [ {ds_name} ] Subject {subj} ---")
             epochs, X, y = get_clean_data(ds_name, subj)
-            # KFold (Bug #3 Fix): keeps the strict chronological blocks of 12 intact, no shuffling.
-            skf = KFold(n_splits=5, shuffle=False)
+            # GroupKFold (Bug #4 Fix): keeps full characters (120 epochs) together.
+            skf = GroupKFold(n_splits=5)
+            groups = epochs.metadata['char_id'].values
             
             # --- Classical Models Comparison ---
             models_list = [
@@ -98,13 +99,19 @@ def run_benchmarking():
                 subject_y = []
                 subject_flashes = []
 
-                for train_idx, test_idx in skf.split(X, y):
+                for train_idx, test_idx in skf.split(X, y, groups=groups):
                     # Data Slicing
                     e_tr, e_te = epochs[train_idx].copy(), epochs[test_idx].copy()
                     y_tr, y_te = y[train_idx], y[test_idx]
 
                     # 1. Zero-Leakage Preprocessing (Per-fold)
                     e_tr, e_te = apply_bad_channel_interpolation(e_tr, e_te)
+                    
+                    # 2. Average Re-reference (Step 3 - Moved here for scientific accuracy)
+                    # We do this after bad channel interp so bad sensors don't bias the mean.
+                    e_tr.set_eeg_reference('average', verbose=False)
+                    e_te.set_eeg_reference('average', verbose=False)
+                    
                     e_tr, e_te = apply_spatial_ica(e_tr, e_te)
                     
                     # 2. Model Specific Features

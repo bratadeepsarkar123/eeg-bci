@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import mne
 import warnings
 # Professional Imports
-from preprocess import get_clean_data
+from preprocess import get_clean_data, apply_bad_channel_interpolation, apply_spatial_ica
 
 warnings.filterwarnings('ignore')
 mne.set_log_level('WARNING')
@@ -14,18 +14,21 @@ def plot_dataset_erp(ax, dataset_name, subj=1):
     """Plots Target vs Non-Target ERP for a specific dataset/subject."""
     epochs_obj, X, y = get_clean_data(dataset_name=dataset_name, subj=subj, apply_decimation=False)
     
-    # 1. SCIENTIFIC FIX: Isolate P300-relevant channels
-    # Averaging all channels mixes early visual occipital responses (P200/VECP) 
-    # with the cognitive parietal response (P300).
-    p300_channels = ['Pz', 'Cz', 'Fz', 'PZ', 'CZ', 'FZ', 'P3', 'P4']
-    avail_chans = [ch for ch in p300_channels if ch in epochs_obj.ch_names]
+    # 2. SCIENTIFIC CLEANING: Bad Channel Interpolation + ICA
+    # We apply this to the full dataset for visualization (Grand Average).
+    # Since this is for plotting only, we use a single cleaning pass.
+    dummy_te = epochs_obj.copy() # Placeholder for the API
+    epochs_obj, _ = apply_bad_channel_interpolation(epochs_obj, dummy_te)
+    epochs_obj.set_eeg_reference('average', verbose=False)
+    epochs_obj, _ = apply_spatial_ica(epochs_obj, dummy_te)
     
     if avail_chans:
         epochs_obj.pick(avail_chans)
         X = epochs_obj.get_data()
-        print(f"    -> Isolated P300 channels for ERP: {avail_chans}")
+        print(f"    -> Cleaned & Isolated P300 channels: {avail_chans}")
     else:
-        print(f"    -> WARNING: Standard P300 channels not found. Using all channels.")
+        X = epochs_obj.get_data()
+        print(f"    -> WARNING: Standard P300 channels not found. Using all channels (Cleaned).")
 
     # Calculate Grand Average (mean trials, then mean channels)
     # X shape is (n_epochs, n_channels, n_times)

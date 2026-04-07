@@ -39,11 +39,9 @@ def get_clean_data(dataset_name='BNCI2014_009', subj=1, apply_decimation=True):
     raw.filter(0.1, 30.0, verbose=False)
     raw.notch_filter(freqs=50, verbose=False)
     
-    # Preprocessing Step 3: Average Re-referencing
-    raw.set_eeg_reference('average', verbose=False)
-
-    # NOTE: Preprocessing Steps 4 (Bad Channels) and 5 (ICA) moved to evaluation
-    # to prevent cross-validation data leakage between train and test folds.
+    # NOTE: Average Re-referencing (Step 3), Bad Channels (Step 4), and ICA (Step 5) 
+    # are moved to the evaluation/plotting loops to prevent cross-validation leakage 
+    # and ensure bad channels aren't mixed into the spatial reference.
 
     # Preprocessing Step 4: Epoching
     events, event_id = mne.events_from_annotations(raw, verbose=False)
@@ -62,13 +60,8 @@ def get_clean_data(dataset_name='BNCI2014_009', subj=1, apply_decimation=True):
                         tmin=-0.2, tmax=0.8, baseline=(-0.2, 0), preload=True, verbose=False)
     
     # Step 8: Metadata Extraction (Fix for Bug #11)
-    # Recover stimulus IDs (Row/Column) for character accuracy.
-    # BNCI2014_009 uses 'Flash stim'. EPFLP300 uses 'STI'.
-    stim_ch = None
-    for cand in ['Flash stim', 'STI', 'stim']:
-        if cand in raw.ch_names:
-            stim_ch = raw.ch_names.index(cand)
-            break
+    # Recover stimulus IDs (Row/Column) and Character IDs for Grouped CV.
+    stim_ch = next((raw.ch_names.index(c) for c in ['Flash stim', 'STI', 'stim'] if c in raw.ch_names), None)
     
     flash_ids = []
     if stim_ch is not None:
@@ -76,13 +69,15 @@ def get_clean_data(dataset_name='BNCI2014_009', subj=1, apply_decimation=True):
             val = raw[stim_ch, event_time][0][0][0]
             flash_ids.append(int(val))
     else:
-        # Fallback to sequential index if no stim channel (prevents crash)
         flash_ids = [i % 12 for i in range(len(events))]
     
+    # Character ID assuming 120 trials (10 reps * 12 flashes) per character block
+    char_ids = np.arange(len(events)) // 120
+    
     epochs.metadata = mne.utils._prepare_metadata(
-        metadata=np.array(flash_ids),
-        names=['flash_id'],
-        col_type={'flash_id': 'int64'},
+        metadata=np.column_stack([flash_ids, char_ids]),
+        names=['flash_id', 'char_id'],
+        col_type={'flash_id': 'int64', 'char_id': 'int64'},
         row_names=None
     )
 
