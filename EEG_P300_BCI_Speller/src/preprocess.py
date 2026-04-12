@@ -102,8 +102,8 @@ def run_preprocessing_fold(epochs_train, epochs_test):
     Per-fold preprocessing ONLY for AutoReject-based epoch cleaning.
     ICA and Bad Channel handling have already been applied globally in get_clean_data.
     """
-    # Parallelize AutoReject to speed up calculations (4 jobs for 12 core CPU)
-    ar = AutoReject(random_state=SEED, n_jobs=4, verbose=False)
+    # Reverted to n_jobs=1 for Windows stability (prevents multiprocessing hangs)
+    ar = AutoReject(random_state=SEED, n_jobs=1, verbose=False)
     ar.fit(epochs_train)
     epochs_train = ar.transform(epochs_train)
     epochs_test = ar.transform(epochs_test)
