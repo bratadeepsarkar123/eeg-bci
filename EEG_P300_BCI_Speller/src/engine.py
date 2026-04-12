@@ -18,6 +18,7 @@ def run_model_evaluation(epochs, X, y, clf, name):
     probs = []
     true_y = []
     flash_ids = []
+    char_ids = []
     
     for train_idx, test_idx in skf.split(X, y, groups=groups):
         e_tr = epochs[train_idx].copy()
@@ -74,6 +75,7 @@ def run_model_evaluation(epochs, X, y, clf, name):
         probs.extend(fold_probs)
         true_y.extend(y_te)
         flash_ids.extend(e_te.metadata['flash_id'].values)
+        char_ids.extend(e_te.metadata['char_id'].values)
         
         metrics.append([
             accuracy_score(y_te, y_pred),
@@ -86,5 +88,6 @@ def run_model_evaluation(epochs, X, y, clf, name):
         'metrics': np.mean(metrics, axis=0),
         'probs': np.array(probs),
         'true_y': np.array(true_y),
-        'flash_ids': np.array(flash_ids)
+        'flash_ids': np.array(flash_ids),
+        'char_ids': np.array(char_ids)
     }

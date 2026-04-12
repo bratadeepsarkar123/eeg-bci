@@ -68,7 +68,7 @@ def run_benchmarking():
                 results = run_model_evaluation(epochs, X, y, clf, name)
 
                 avg_m = results['metrics']
-                char_acc = get_character_prediction(results['probs'], results['true_y'], results['flash_ids'])
+                char_acc = get_character_prediction(results['probs'], results['true_y'], results['flash_ids'], results['char_ids'])
                 itr = get_symbol_itr(36, char_acc, dur=config.TRIAL_DURATION)
 
                 # Save metrics for summary
