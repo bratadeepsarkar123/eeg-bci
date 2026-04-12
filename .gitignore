@@ -3,3 +3,8 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 .DS_Store
+
+legacy_archive/
+eeg_env/
+*.pyc
+__pycache__/

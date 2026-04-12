@@ -1,3 +1,8 @@
+import sys
+import os
+# Allow running from project root: python src/evaluate.py OR python -m src.evaluate
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -10,113 +15,132 @@ from features import apply_xdawn, extract_riemannian_covariances, extract_p300_f
 from models import get_lda_pipeline, get_svm_pipeline, get_eegnet_pipeline, get_riemannian_pipeline
 from utils import setup_environment, get_symbol_itr, get_character_prediction
 
-# Trial duration constant for ITR: 12 flashes * 10 reps * ~0.175s SOA = ~21s per character
-TRIAL_DURATION = 21.0
+# --- ITR Duration: 12 flashes × 0.175s SOA = 2.1s per character ---
+TRIAL_DURATION = 2.1
+
+# Standard P300 downsampling: ~85 Hz * 1.0s window ≈ 85 samples; decimation=3 → ~28 features/ch
+DECIMATION_FACTOR = 3
 
 
 def run_benchmarking():
     datasets = ["BNCI2014_009", "EPFLP300"]
     all_summary = []
-    
-    # Testing subjects 1 to 3 to meet subject-level accuracy requirements
-    test_range = range(1, 4) 
-    
+
+    # Test subjects 1–3; gracefully skip if dataset has fewer subjects
+    test_range = range(1, 4)
+
     for ds_name in datasets:
-        for subj in test_range: 
-            print(f"\\n--- [ {ds_name} ] Subject {subj} ---")
-            
-            # Use try-except in case a dataset doesn't have 3+ subjects (e.g., EPFLP300 has 8, BNCI has 10)
+        for subj in test_range:
+            print(f"\n--- [ {ds_name} ] Subject {subj} ---")
+
             try:
                 epochs, X, y = get_clean_data(ds_name, subj)
             except Exception as e:
-                print(f"  Skipping subject {subj} due to loading error: {e}")
+                print(f"  Skipping subject {subj}: {e}")
                 continue
-                
+
             skf = StratifiedGroupKFold(n_splits=5)
             groups = epochs.metadata['char_id'].values
-            
-            # EEGNetv4 required specs
+
             n_chans = X.shape[1]
             n_times = X.shape[2]
-            
+
             models_list = [
-                ("LDA", get_lda_pipeline()),
-                ("SVM", get_svm_pipeline()),
-                ("Xdawn+LDA", get_lda_pipeline()), 
+                ("LDA",           get_lda_pipeline()),
+                ("SVM",           get_svm_pipeline()),
+                ("Xdawn+LDA",     get_lda_pipeline()),
                 ("Riemannian MDM", get_riemannian_pipeline()),
-                ("EEGNet", get_eegnet_pipeline(in_chans=n_chans, input_window_samples=n_times))
+                ("EEGNet",        get_eegnet_pipeline(in_chans=n_chans, input_window_samples=n_times)),
             ]
-            
+
             for name, clf in models_list:
                 print(f"  Training {name}...")
-                metrics = []
-                subject_probs = []
-                subject_y = []
+                metrics        = []
+                subject_probs  = []
+                subject_y      = []
                 subject_flashes = []
-                
+
                 for train_idx, test_idx in skf.split(X, y, groups=groups):
-                    e_tr, e_te = epochs[train_idx].copy(), epochs[test_idx].copy()
-                    y_tr, y_te = y[train_idx], y[test_idx]
-                    
+                    e_tr = epochs[train_idx].copy()
+                    e_te = epochs[test_idx].copy()
+                    y_tr = y[train_idx]
+                    y_te = y[test_idx]
+
+                    # Per-fold AutoReject only (ICA already applied on raw)
                     e_tr, e_te = run_preprocessing_fold(e_tr, e_te)
-                    
+
+                    # Feature extraction per model type
                     if "Xdawn" in name:
                         X_tr, X_te = apply_xdawn(e_tr, y_tr, e_te)
+
                     elif "Riemannian" in name:
                         X_tr = extract_riemannian_covariances(e_tr.get_data())
                         X_te = extract_riemannian_covariances(e_te.get_data())
+
                     elif "EEGNet" in name:
-                        X_tr_data = e_tr.get_data()
-                        X_te_data = e_te.get_data()
-                        mu = np.mean(X_tr_data)
-                        sd = np.std(X_tr_data)
-                        # EEGNet expects shape: (n_trials, 1, n_channels, n_times)
-                        X_tr = ((X_tr_data - mu) / sd)[:, np.newaxis, :, :].astype(np.float32)
-                        X_te = ((X_te_data - mu) / sd)[:, np.newaxis, :, :].astype(np.float32)
+                        raw_tr = e_tr.get_data()
+                        raw_te = e_te.get_data()
+                        mu, sd = np.mean(raw_tr), np.std(raw_tr)
+                        X_tr = ((raw_tr - mu) / sd)[:, np.newaxis, :, :].astype(np.float32)
+                        X_te = ((raw_te - mu) / sd)[:, np.newaxis, :, :].astype(np.float32)
                         y_tr = y_tr.astype(np.int64)
                         y_te = y_te.astype(np.int64)
+
                     else:
-                        X_tr = extract_p300_features(e_tr.get_data())
-                        X_te = extract_p300_features(e_te.get_data())
-                        
+                        # LDA / SVM: decimate to reduce dimensionality (spec: ~30 features/ch)
+                        X_tr = extract_p300_features(e_tr.get_data(), decimation_factor=DECIMATION_FACTOR)
+                        X_te = extract_p300_features(e_te.get_data(), decimation_factor=DECIMATION_FACTOR)
+
                     clf.fit(X_tr, y_tr)
                     y_pred = clf.predict(X_te)
-                    
+
                     subject_probs.extend(clf.predict_proba(X_te)[:, 1])
                     subject_y.extend(y_te)
                     subject_flashes.extend(e_te.metadata['flash_id'].values)
-                    
+
                     metrics.append([
                         accuracy_score(y_te, y_pred),
                         recall_score(y_te, y_pred, average='binary'),
                         precision_score(y_te, y_pred, average='binary', zero_division=0),
-                        f1_score(y_te, y_pred, average='binary', zero_division=0)
+                        f1_score(y_te, y_pred, average='binary', zero_division=0),
                     ])
-                    
+
                 avg_m = np.mean(metrics, axis=0)
-                char_acc = get_character_prediction(np.array(subject_probs), np.array(subject_y), np.array(subject_flashes))
+                char_acc = get_character_prediction(
+                    np.array(subject_probs), np.array(subject_y), np.array(subject_flashes)
+                )
                 itr = get_symbol_itr(36, char_acc, dur=TRIAL_DURATION)
+
+                # Confusion matrix
                 y_pred_all = (np.array(subject_probs) > 0.5).astype(int)
                 cm = confusion_matrix(subject_y, y_pred_all)
-                
                 plt.figure(figsize=(5, 4))
                 sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
                 plt.title(f"CM: {name} ({ds_name} S{subj})")
                 plt.xlabel("Predicted"); plt.ylabel("True")
                 plt.savefig(f"results/cm_{ds_name}_S{subj}_{name}.png")
                 plt.close()
-                print(f"    - F1: {avg_m[3]:.3f} | Char Acc: {char_acc*100:.1f}% | ITR: {itr:.2f} bpm")
-                
-                all_summary.append([ds_name, subj, name, avg_m[0], avg_m[3], avg_m[2], avg_m[1], char_acc, itr])
-                
+
+                print(f"    Acc: {avg_m[0]:.3f} | Prec: {avg_m[2]:.3f} | Rec: {avg_m[1]:.3f} | "
+                      f"F1: {avg_m[3]:.3f} | Char Acc: {char_acc*100:.1f}% | ITR: {itr:.2f} bpm")
+
+                all_summary.append([
+                    ds_name, subj, name,
+                    avg_m[0], avg_m[3], avg_m[2], avg_m[1],   # Acc, F1, Prec, Rec
+                    char_acc, itr
+                ])
+
     if all_summary:
-        df = pd.DataFrame(all_summary, columns=['Dataset', 'Subject', 'Model', 'Acc', 'F1', 'Precision', 'Recall', 'Char_Acc', 'ITR_N36'])
+        df = pd.DataFrame(
+            all_summary,
+            columns=['Dataset', 'Subject', 'Model', 'Acc', 'F1', 'Precision', 'Recall', 'Char_Acc', 'ITR_N36']
+        )
         df.to_csv('results/all_subject_results.csv', index=False)
-        print("\\n[DONE] Benchmark Complete. Results and Confusion Matrices saved to results/ folder.")
+        print("\n[DONE] Benchmark complete. Results saved to results/")
+
 
 if __name__ == "__main__":
     setup_environment()
     run_benchmarking()
     from ensemble import run_ensemble_benchmark
     run_ensemble_benchmark()
-
