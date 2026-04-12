@@ -19,6 +19,7 @@ def get_clean_data(dataset_name='BNCI2014_009', subj=1, apply_decimation=True):
     raw.pick_types(eeg=True)
     raw.filter(0.1, 30.0, verbose=False)
     raw.notch_filter(freqs=50, verbose=False)
+    raw.set_eeg_reference('average', projection=True, verbose=False)
     events, event_id = mne.events_from_annotations(raw, verbose=False)
     target_id = event_id.get('Target')
     nontarget_id = event_id.get('NonTarget')
