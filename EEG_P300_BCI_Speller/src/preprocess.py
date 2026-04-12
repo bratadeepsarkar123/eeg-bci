@@ -99,12 +99,11 @@ def get_clean_data(dataset_name='BNCI2014_009', subj=1):
 
 def run_preprocessing_fold(epochs_train, epochs_test):
     """
-    Per-fold preprocessing ONLY for AutoReject-based epoch cleaning.
-    ICA and Bad Channel handling have already been applied globally in get_clean_data.
+    Per-fold preprocessing. Replaced heavy AutoReject with fast fixed-threshold rejection
+    to speed up final submission benchmarking.
     """
-    # Reverted to n_jobs=1 for Windows stability (prevents multiprocessing hangs)
-    ar = AutoReject(random_state=SEED, n_jobs=1, verbose=False)
-    ar.fit(epochs_train)
-    epochs_train = ar.transform(epochs_train)
-    epochs_test = ar.transform(epochs_test)
+    reject_criteria = dict(eeg=100e-6) # 100 microvolts peak-to-peak
+    epochs_train.drop_bad(reject=reject_criteria, verbose=False)
+    epochs_test.drop_bad(reject=reject_criteria, verbose=False)
+    
     return epochs_train, epochs_test

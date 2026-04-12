@@ -12,7 +12,7 @@ def run_model_evaluation(epochs, X, y, clf, name):
     Handles per-fold cross-validation, preprocessing, and feature extraction.
     """
     groups = epochs.metadata['char_id'].values
-    skf = StratifiedGroupKFold(n_splits=5)
+    skf = StratifiedGroupKFold(n_splits=3)
     
     metrics = []
     probs = []

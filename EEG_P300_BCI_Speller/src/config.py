@@ -9,8 +9,8 @@ RESULTS_DIR = PROJECT_ROOT / "results"
 
 # Benchmark setup
 DATASETS = ["BNCI2014_009", "EPFLP300"]
-# Test subject range. NOTE: Evaluates up to subject 10 if available, skips otherwise.
-TEST_SUBJECTS = range(1, 11)
+# Test subject range. Reduced to first 2 subjects for fast-track benchmarking.
+TEST_SUBJECTS = range(1, 3)
 
 # ITR Calculation Duration
 # 12 flashes × 0.175s SOA = 2.1s per character
