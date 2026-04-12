@@ -86,13 +86,14 @@ def get_clean_data(dataset_name='BNCI2014_009', subj=1):
     flash_ids = [i % 12 for i in range(len(events))]
     char_ids = np.arange(len(events)) // 12
 
+    y = (epochs.events[:, -1] == target_id).astype(int)
+
     epochs.metadata = pd.DataFrame({
         'flash_id': flash_ids[:len(epochs)],
         'char_id':  char_ids[:len(epochs)],
         'target':   y[:len(epochs)]
     })
 
-    y = (epochs.events[:, -1] == target_id).astype(int)
     return epochs, epochs.get_data(), y
 
 
