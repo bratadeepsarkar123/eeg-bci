@@ -10,18 +10,23 @@ warnings.filterwarnings('ignore', category=RuntimeWarning)
 SEED = 42
 
 
+def get_dataset_class(name):
+    """Robust lookup for MOABB dataset classes (handles underscore naming changes)."""
+    import moabb.datasets as md
+    test_names = [name, name.replace('_', ''), name.replace('00', '0')] 
+    for n in test_names:
+        if hasattr(md, n):
+            return getattr(md, n)
+    raise ImportError(f"Could not find dataset {name} in moabb.datasets. Available: {dir(md)}")
+
 def get_clean_data(dataset_name='BNCI2014_009', subj=1):
     """
     Load and preprocess continuous raw EEG signal, THEN epoch.
     Stage 1 (Raw): Bandpass, Notch, Re-reference, Bad Channel Detection, ICA.
     Stage 2 (Epoched): Epoch extraction with baseline correction.
     """
-    if dataset_name == 'BNCI2014_009':
-        ds = BNCI2014_009()
-    elif dataset_name == 'EPFLP300':
-        ds = EPFLP300()
-    else:
-        raise ValueError(f"Unsupported dataset: {dataset_name}")
+    ds_class = get_dataset_class(dataset_name)
+    ds = ds_class()
 
     data = ds.get_data(subjects=[subj])[subj]
     s_key = list(data.keys())[0]
@@ -83,7 +88,8 @@ def get_clean_data(dataset_name='BNCI2014_009', subj=1):
 
     epochs.metadata = pd.DataFrame({
         'flash_id': flash_ids[:len(epochs)],
-        'char_id':  char_ids[:len(epochs)]
+        'char_id':  char_ids[:len(epochs)],
+        'target':   y[:len(epochs)]
     })
 
     y = (epochs.events[:, -1] == target_id).astype(int)
@@ -95,7 +101,8 @@ def run_preprocessing_fold(epochs_train, epochs_test):
     Per-fold preprocessing ONLY for AutoReject-based epoch cleaning.
     ICA and Bad Channel handling have already been applied globally in get_clean_data.
     """
-    ar = AutoReject(random_state=SEED, n_jobs=1, verbose=False)
+    # Parallelize AutoReject to speed up calculations (4 jobs for 12 core CPU)
+    ar = AutoReject(random_state=SEED, n_jobs=4, verbose=False)
     ar.fit(epochs_train)
     epochs_train = ar.transform(epochs_train)
     epochs_test = ar.transform(epochs_test)

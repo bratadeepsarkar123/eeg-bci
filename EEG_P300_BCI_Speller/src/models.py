@@ -12,10 +12,22 @@ try:
 except ImportError:
     MDM = None
 
+# Monkeypatch MOABB to fix braindecode 1.2.0 compatibility issues
+try:
+    import moabb.datasets as md
+    if not hasattr(md, 'BNCI2014001') and hasattr(md, 'BNCI2014_001'):
+        md.BNCI2014001 = md.BNCI2014_001
+    if not hasattr(md, 'BNCI2014009') and hasattr(md, 'BNCI2014_009'):
+        md.BNCI2014009 = md.BNCI2014_009
+except Exception:
+    pass
+
 try:
     from braindecode.models import EEGNetv4
-except ImportError:
+except Exception as e:
     EEGNetv4 = None
+    IMPORT_ERROR_MSG = str(e)
+
 def get_lda_pipeline():
     return Pipeline([
         ('scaler', StandardScaler()),
@@ -30,7 +42,7 @@ def get_eegnet_pipeline(in_chans=16, input_window_samples=257):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     weight = torch.tensor([1.0, 5.0], device=device)
     if EEGNetv4 is None:
-        raise ImportError("braindecode is not installed.")
+        raise ImportError(f"braindecode is missing or broken. Root error: {IMPORT_ERROR_MSG}")
     return NeuralNetClassifier(
         EEGNetv4,
         module__in_chans=in_chans,

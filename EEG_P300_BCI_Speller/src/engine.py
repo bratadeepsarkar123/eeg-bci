@@ -28,6 +28,10 @@ def run_model_evaluation(epochs, X, y, clf, name):
         # Consistent per-fold preprocessing (AutoReject)
         e_tr, e_te = run_preprocessing_fold(e_tr, e_te)
         
+        # Sync labels after AutoReject potentially dropped bad epochs
+        y_tr = e_tr.metadata['target'].values
+        y_te = e_te.metadata['target'].values
+        
         # Model-specific feature extraction
         if "Xdawn" in name:
             X_tr, X_te = apply_xdawn(e_tr, y_tr, e_te, decimation_factor=config.DECIMATION_FACTOR)
