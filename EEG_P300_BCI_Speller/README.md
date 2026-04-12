@@ -9,9 +9,11 @@ This repository is organized into a modular structure as requested by the 100% c
 | :--- | :--- | :--- |
 | `src/evaluate.py` | **Main Engine** | Run this to verify overall BCI performance. |
 | `src/preprocess.py` | **Signal Processing** | Bandpass, Notch, Avg-Ref, ICA, and Epoching. |
-| `src/models.py` | **Architecture** | Definitions for EEGNet and classical baselines. |
+| `src/models.py` | **Architecture** | Definitions for EEGNet (v4) and classical baselines. |
 | `src/features.py` | **Features** | Waveform decimation and SNR management. |
 | `src/visualization.py` | **Analytics** | Side-by-side Grand Average ERP comparisons. |
+
+> **Note on Architectures**: The requirements refer to Lawhern et al. (2018) which introduced the original EEGNet. This pipeline implements **EEGNetv4** (the updated version of the architecture) due to its enhanced performance and native support in the `braindecode` framework.
 | `src/ensemble.py` | **Reliability** | Decision-averaging logic to boost speller accuracy. |
 
 ## Final Scientifically Validated Results (5-Fold Grouped CV)

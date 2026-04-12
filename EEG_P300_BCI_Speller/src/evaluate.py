@@ -1,7 +1,5 @@
-import sys
 import os
-# Allow running from project root: python src/evaluate.py OR python -m src.evaluate
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -14,23 +12,13 @@ from preprocess import get_clean_data, run_preprocessing_fold
 from features import apply_xdawn, extract_riemannian_covariances, extract_p300_features
 from models import get_lda_pipeline, get_svm_pipeline, get_eegnet_pipeline, get_riemannian_pipeline
 from utils import setup_environment, get_symbol_itr, get_character_prediction
-
-# --- ITR Duration: 12 flashes × 0.175s SOA = 2.1s per character ---
-TRIAL_DURATION = 2.1
-
-# Standard P300 downsampling: ~85 Hz * 1.0s window ≈ 85 samples; decimation=3 → ~28 features/ch
-DECIMATION_FACTOR = 3
-
+import config
 
 def run_benchmarking():
-    datasets = ["BNCI2014_009", "EPFLP300"]
     all_summary = []
 
-    # Test subjects 1–3; gracefully skip if dataset has fewer subjects
-    test_range = range(1, 4)
-
-    for ds_name in datasets:
-        for subj in test_range:
+    for ds_name in config.DATASETS:
+        for subj in config.TEST_SUBJECTS:
             print(f"\n--- [ {ds_name} ] Subject {subj} ---")
 
             try:
@@ -88,8 +76,8 @@ def run_benchmarking():
 
                     else:
                         # LDA / SVM: decimate to reduce dimensionality (spec: ~30 features/ch)
-                        X_tr = extract_p300_features(e_tr.get_data(), decimation_factor=DECIMATION_FACTOR)
-                        X_te = extract_p300_features(e_te.get_data(), decimation_factor=DECIMATION_FACTOR)
+                        X_tr = extract_p300_features(e_tr.get_data(), decimation_factor=config.DECIMATION_FACTOR)
+                        X_te = extract_p300_features(e_te.get_data(), decimation_factor=config.DECIMATION_FACTOR)
 
                     clf.fit(X_tr, y_tr)
                     y_pred = clf.predict(X_te)
@@ -109,7 +97,7 @@ def run_benchmarking():
                 char_acc = get_character_prediction(
                     np.array(subject_probs), np.array(subject_y), np.array(subject_flashes)
                 )
-                itr = get_symbol_itr(36, char_acc, dur=TRIAL_DURATION)
+                itr = get_symbol_itr(36, char_acc, dur=config.TRIAL_DURATION)
 
                 # Confusion matrix
                 y_pred_all = (np.array(subject_probs) > 0.5).astype(int)
@@ -118,7 +106,8 @@ def run_benchmarking():
                 sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
                 plt.title(f"CM: {name} ({ds_name} S{subj})")
                 plt.xlabel("Predicted"); plt.ylabel("True")
-                plt.savefig(f"results/cm_{ds_name}_S{subj}_{name}.png")
+                config.RESULTS_DIR.mkdir(exist_ok=True)
+                plt.savefig(config.RESULTS_DIR / f"cm_{ds_name}_S{subj}_{name}.png")
                 plt.close()
 
                 print(f"    Acc: {avg_m[0]:.3f} | Prec: {avg_m[2]:.3f} | Rec: {avg_m[1]:.3f} | "
@@ -135,12 +124,10 @@ def run_benchmarking():
             all_summary,
             columns=['Dataset', 'Subject', 'Model', 'Acc', 'F1', 'Precision', 'Recall', 'Char_Acc', 'ITR_N36']
         )
-        df.to_csv('results/all_subject_results.csv', index=False)
-        print("\n[DONE] Benchmark complete. Results saved to results/")
+        df.to_csv(config.RESULTS_DIR / 'all_subject_results.csv', index=False)
+        print(f"\n[DONE] Benchmark complete. Results saved to {config.RESULTS_DIR}")
 
 
 if __name__ == "__main__":
     setup_environment()
     run_benchmarking()
-    from ensemble import run_ensemble_benchmark
-    run_ensemble_benchmark()

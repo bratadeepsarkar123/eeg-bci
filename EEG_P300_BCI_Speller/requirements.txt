@@ -13,4 +13,4 @@ pandas>=2.0
 skorch>=0.15
 braindecode
 pyriemann
-autoreject
+autoreject>=0.3.3
