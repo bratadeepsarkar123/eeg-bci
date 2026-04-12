@@ -14,6 +14,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import confusion_matrix
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 
 import config
 from preprocess import get_clean_data
@@ -25,6 +26,13 @@ def run_benchmarking():
     """
     Main entry point for full BCI pipeline benchmarking.
     Runs all models across all subjects and datasets.
+
+    Models:
+      - LDA            : plain downsampled-waveform + LDA
+      - SVM            : plain downsampled-waveform + SVM (RBF)
+      - Xdawn+LDA      : Xdawn spatial filter → bare LDA (no redundant StandardScaler)
+      - Riemannian MDM : covariance matrices + Minimum Distance to Mean
+      - EEGNet         : EEGNetv4 deep learning classifier
     """
     all_summary = []
 
@@ -41,20 +49,24 @@ def run_benchmarking():
 
             n_chans, n_times = X.shape[1], X.shape[2]
 
+            # NOTE: Xdawn+LDA uses a bare LDA (no StandardScaler) because Xdawn
+            # already produces spatially normalised components. Using the full
+            # lda_pipeline (which includes StandardScaler) would add unnecessary
+            # redundancy. The engine.py routes Xdawn feature extraction by name.
             models_list = [
                 ("LDA",            get_lda_pipeline()),
                 ("SVM",            get_svm_pipeline()),
-                ("Xdawn+LDA",      get_lda_pipeline()),
+                ("Xdawn+LDA",      LinearDiscriminantAnalysis()),
                 ("Riemannian MDM", get_riemannian_pipeline()),
                 ("EEGNet",         get_eegnet_pipeline(in_chans=n_chans, input_window_samples=n_times)),
             ]
 
             for name, clf in models_list:
                 print(f"  Evaluating {name}...")
-                
+
                 # CALL CENTRALIZED ENGINE
                 results = run_model_evaluation(epochs, X, y, clf, name)
-                
+
                 avg_m = results['metrics']
                 char_acc = get_character_prediction(results['probs'], results['true_y'], results['flash_ids'])
                 itr = get_symbol_itr(36, char_acc, dur=config.TRIAL_DURATION)
@@ -98,7 +110,7 @@ def run_benchmarking():
             plt.tight_layout()
             plt.savefig(config.RESULTS_DIR / 'grand_average_comparison.png', bbox_inches='tight')
             plt.close()
-        except:
+        except Exception:
             pass
 
 if __name__ == "__main__":
