@@ -1,10 +1,8 @@
 import os
 from pathlib import Path
 
-# Project root path (assumes config.py is in src/)
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# Results directory (using absolute path instead of relative string)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RESULTS_DIR = PROJECT_ROOT / "results"
 
 # Benchmark setup
